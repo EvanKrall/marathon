@@ -1,12 +1,12 @@
 # Marathon Dockerfile
-FROM ubuntu:14.04
+FROM docker-dev.yelpcorp.com/trusty_yelp:latest
 MAINTAINER Mesosphere <support@mesosphere.io>
 
 ## DEPENDENCIES ##
 RUN echo "deb http://repos.mesosphere.io/ubuntu/ trusty main" > /etc/apt/sources.list.d/mesosphere.list
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv E56151BF
 RUN apt-get update
-RUN apt-get install --assume-yes mesos python-software-properties curl default-jdk
+RUN apt-get install --assume-yes mesos=0.19.1-1.0.ubuntu1404 python-software-properties curl default-jdk
 
 ## MARATHON ##
 ADD http://downloads.mesosphere.io/marathon/marathon-0.6.1/marathon-0.6.1.tgz /tmp/marathon.tgz
