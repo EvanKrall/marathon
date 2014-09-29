@@ -1,4 +1,4 @@
-FROM ubuntu:14.04
+FROM docker-dev.yelpcorp.com/trusty_yelp:latest
 
 RUN echo "deb http://repos.mesosphere.io/ubuntu/ trusty main" > /etc/apt/sources.list.d/mesosphere.list && \
     apt-key adv --keyserver keyserver.ubuntu.com --recv E56151BF && \
@@ -6,7 +6,7 @@ RUN echo "deb http://repos.mesosphere.io/ubuntu/ trusty main" > /etc/apt/sources
 
 RUN apt-get install -y \
     default-jdk \
-    mesos \
+    mesos=0.19.1-1.0.ubuntu1404 \
     scala \
     curl 
 
