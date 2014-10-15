@@ -13,8 +13,9 @@ import org.rogach.scallop.ScallopConf
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.{ FunSuite, Matchers }
 
-import scala.concurrent.{ Await, Future }
+import scala.collection.immutable.Seq
 import scala.concurrent.duration._
+import scala.concurrent.{ Await, Future }
 
 class GroupManagerTest extends FunSuite with MockitoSugar with Matchers {
 
@@ -37,11 +38,11 @@ class GroupManagerTest extends FunSuite with MockitoSugar with Matchers {
       docker = Some(Docker(
         image = "busybox",
         network = Some(Network.BRIDGE),
-        portMappings = Seq(
-          PortMapping(containerPort = 8080, hostPort = 0, protocol = "tcp"),
-          PortMapping (containerPort = 9000, hostPort = 10555, protocol = "udp"),
-          PortMapping(containerPort = 9001, hostPort = 0, protocol = "tcp")
-        )
+        portMappings = Some(Seq(
+          PortMapping(containerPort = 8080, hostPort = 0, servicePort = 0, protocol = "tcp"),
+          PortMapping (containerPort = 9000, hostPort = 10555, servicePort = 10555, protocol = "udp"),
+          PortMapping(containerPort = 9001, hostPort = 0, servicePort = 0, protocol = "tcp")
+        ))
       ))
     )
     val group = Group(PathId.empty, Set(
@@ -75,7 +76,6 @@ class GroupManagerTest extends FunSuite with MockitoSugar with Matchers {
   }
 
   test("Don't store invalid groups") {
-
     val scheduler = mock[MarathonSchedulerService]
     val taskTracker = mock[TaskTracker]
     val groupRepo = mock[GroupRepository]

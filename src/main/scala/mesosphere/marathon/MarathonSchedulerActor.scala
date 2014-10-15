@@ -1,9 +1,6 @@
 package mesosphere.marathon
 
 import java.util.concurrent.Semaphore
-import scala.collection.JavaConverters._
-import scala.concurrent.{ ExecutionContext, Future, Promise, blocking }
-import scala.util.{ Failure, Success }
 
 import akka.actor._
 import akka.event.EventStream
@@ -25,6 +22,11 @@ import mesosphere.mesos.protos.Offer
 import mesosphere.mesos.util.FrameworkIdUtil
 import mesosphere.mesos.{ TaskBuilder, protos }
 import mesosphere.util.{ LockManager, PromiseActor }
+
+import scala.collection.immutable.Seq
+import scala.collection.JavaConverters._
+import scala.concurrent.{ ExecutionContext, Future, Promise, blocking }
+import scala.util.{ Failure, Success }
 
 class MarathonSchedulerActor(
     mapper: ObjectMapper,
@@ -84,29 +86,37 @@ class MarathonSchedulerActor(
   }
 
   def ready: Receive = {
-    case cmd @ ReconcileTasks =>
+    case ReconcileTasks =>
       scheduler.reconcileTasks(driver)
-      sender ! cmd.answer
+      sender ! ReconcileTasks.answer
 
     case cmd @ ScaleApp(appId) =>
-      val origSender = sender
+      val origSender = sender()
       performAsyncWithLockFor(appId, origSender, cmd, blocking = false) {
-        scheduler.scale(driver, appId).sendAnswer(origSender, cmd)
+        val res = scheduler.scale(driver, appId)
+
+        if (origSender != Actor.noSender)
+          res.sendAnswer(origSender, cmd)
+        else
+          res
       }
 
     case cmd @ Deploy(plan, false) =>
-      deploy(sender, cmd, plan, blocking = false)
+      deploy(sender(), cmd, plan, blocking = false)
 
     case cmd @ Deploy(plan, true) =>
-      deploymentManager ! CancelConflictingDeployments(plan, new DeploymentCanceledException("The upgrade has been cancelled"))
-      deploy(sender, cmd, plan, blocking = true)
+      deploymentManager ! CancelConflictingDeployments(
+        plan,
+        new DeploymentCanceledException("The upgrade has been cancelled")
+      )
+      deploy(sender(), cmd, plan, blocking = true)
 
     case cmd @ KillTasks(appId, taskIds, scale) =>
-      val origSender = sender
+      val origSender = sender()
       performAsyncWithLockFor(appId, origSender, cmd, blocking = true) {
         val promise = Promise[Unit]()
         val tasksToKill = taskIds.flatMap(taskTracker.fetchTask(appId, _)).toSet
-        val actor = context.actorOf(Props(new TaskKillActor(driver, appId, taskTracker, eventBus, tasksToKill, promise)))
+        context.actorOf(Props(classOf[TaskKillActor], driver, appId, taskTracker, eventBus, tasksToKill, promise))
         val res = if (scale) {
           for {
             _ <- promise.future
@@ -122,8 +132,8 @@ class MarathonSchedulerActor(
     case ConflictingDeploymentsCanceled(id) =>
       log.info(s"Conflicting deployments for deployment $id have been canceled")
 
-    case msg @ RetrieveRunningDeployments =>
-      deploymentManager forward msg
+    case RetrieveRunningDeployments =>
+      deploymentManager forward RetrieveRunningDeployments
   }
 
   /**
@@ -189,8 +199,10 @@ class MarathonSchedulerActor(
     val ids = plan.affectedApplicationIds
 
     performAsyncWithLockFor(ids, origSender, cmd, isBlocking = blocking) {
+      ids.foreach(taskQueue.rateLimiter.resetDelay)
+
       val res = deploy(driver, plan)
-      origSender ! cmd.answer
+      if (origSender != Actor.noSender) origSender ! cmd.answer
       res
     }
   }
@@ -317,6 +329,7 @@ class SchedulerActions(
       }
       taskQueue.purge(app.id)
       taskTracker.shutdown(app.id)
+      taskQueue.rateLimiter.resetDelay(app.id)
       // TODO after all tasks have been killed we should remove the app from taskTracker
     }
   }

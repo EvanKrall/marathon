@@ -17,6 +17,7 @@ import mesosphere.marathon.tasks.{ PortsMatcher, TaskTracker }
 import mesosphere.marathon.Protos.Constraint
 import mesosphere.mesos.protos.{ RangesResource, Resource, ScalarResource }
 
+import scala.collection.immutable.Seq
 import scala.util.{ Failure, Success, Try }
 
 class TaskBuilder(app: AppDefinition,
@@ -42,7 +43,7 @@ class TaskBuilder(app: AppDefinition,
         diskRole = disk
         portsResource = ranges
       case _ =>
-        log.info(s"No matching offer for ${app.id} (need cpus=${app.cpus}, mem=${app.mem}, disk=${app.disk}, ports=${app.ports}) : " + offer)
+        log.info(s"No matching offer for ${app.id} (need cpus=${app.cpus}, mem=${app.mem}, disk=${app.disk}, ports=${app.hostPorts}) : " + offer)
         return None
     }
 
@@ -53,7 +54,9 @@ class TaskBuilder(app: AppDefinition,
       Executor.dispatch(app.executor)
     }
 
-    val ports = portsResource.ranges.flatMap(_.asScala())
+    val host: Option[String] = Some(offer.getHostname)
+
+    val ports = portsResource.ranges.flatMap(_.asScala()).to[Seq]
 
     val taskId = newTaskId(app.id)
     val builder = TaskInfo.newBuilder
@@ -70,8 +73,10 @@ class TaskBuilder(app: AppDefinition,
     val containerProto: Option[ContainerInfo] =
       app.container.map { c =>
         val portMappings = c.docker.map { d =>
-          d.portMappings zip ports map {
-            case (mapping, port) => mapping.copy(hostPort = port.toInt)
+          d.portMappings.map { pms =>
+            pms zip ports map {
+              case (mapping, port) => mapping.copy(hostPort = port.toInt)
+            }
           }
         }
         val containerWithPortMappings = portMappings match {
@@ -80,12 +85,12 @@ class TaskBuilder(app: AppDefinition,
             docker = c.docker.map { _.copy(portMappings = newMappings) }
           )
         }
-        containerWithPortMappings.toProto
+        containerWithPortMappings.toMesos
       }
 
     executor match {
       case CommandExecutor() =>
-        builder.setCommand(TaskBuilder.commandInfo(app, ports))
+        builder.setCommand(TaskBuilder.commandInfo(app, host, ports))
         for (c <- containerProto) builder.setContainer(c)
 
       case PathExecutor(path) =>
@@ -94,7 +99,7 @@ class TaskBuilder(app: AppDefinition,
         val cmd = app.cmd orElse app.args.map(_ mkString " ") getOrElse ""
         val shell = s"chmod ug+rx $executorPath && exec $executorPath $cmd"
         val command =
-          TaskBuilder.commandInfo(app, ports).toBuilder.setValue(shell)
+          TaskBuilder.commandInfo(app, host, ports).toBuilder.setValue(shell)
 
         val info = ExecutorInfo.newBuilder()
           .setExecutorId(ExecutorID.newBuilder().setValue(executorId))
@@ -196,8 +201,8 @@ class TaskBuilder(app: AppDefinition,
 
 object TaskBuilder {
 
-  def commandInfo(app: AppDefinition, ports: Seq[Long]) = {
-    val envMap = app.env ++ portsEnv(ports)
+  def commandInfo(app: AppDefinition, host: Option[String], ports: Seq[Long]) = {
+    val envMap = app.env ++ portsEnv(ports) ++ host.map("HOST" -> _)
 
     val builder = CommandInfo.newBuilder()
       .setEnvironment(environment(envMap))
@@ -231,19 +236,13 @@ object TaskBuilder {
   }
 
   private def isExtract(stringuri: String): Boolean = {
-    if (stringuri.endsWith(".tgz") ||
+    stringuri.endsWith(".tgz") ||
       stringuri.endsWith(".tar.gz") ||
       stringuri.endsWith(".tbz2") ||
       stringuri.endsWith(".tar.bz2") ||
       stringuri.endsWith(".txz") ||
       stringuri.endsWith(".tar.xz") ||
-      stringuri.endsWith(".zip")) {
-      return true;
-    }
-    else {
-      return false;
-    }
-
+      stringuri.endsWith(".zip")
   }
 
   def environment(vars: Map[String, String]) = {

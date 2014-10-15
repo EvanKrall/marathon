@@ -1,12 +1,13 @@
 package mesosphere.marathon.state
 
 import mesosphere.marathon.MarathonSpec
-import mesosphere.marathon.Protos.ServiceDefinition
+import mesosphere.marathon.Protos
 import mesosphere.marathon.api.ModelValidation
 import javax.validation.Validation
 import org.scalatest.Matchers
 import org.apache.mesos.{ Protos => mesos }
 
+import scala.collection.immutable.Seq
 import scala.collection.JavaConverters._
 
 class ContainerTest extends MarathonSpec with Matchers with ModelValidation {
@@ -30,10 +31,10 @@ class ContainerTest extends MarathonSpec with Matchers with ModelValidation {
         Container.Docker(
           image = "group/image",
           network = Some(mesos.ContainerInfo.DockerInfo.Network.BRIDGE),
-          portMappings = Seq(
-            Container.Docker.PortMapping(8080, 32001, "tcp"),
-            Container.Docker.PortMapping(8081, 32002, "udp")
-          )
+          portMappings = Some(Seq(
+            Container.Docker.PortMapping(8080, 32001, 9000, "tcp"),
+            Container.Docker.PortMapping(8081, 32002, 9001, "udp")
+          ))
         )
       )
     )
@@ -52,13 +53,13 @@ class ContainerTest extends MarathonSpec with Matchers with ModelValidation {
     assert(mesos.ContainerInfo.Type.DOCKER == proto2.getType)
     assert("group/image" == proto2.getDocker.getImage)
     assert(f.container2.docker.get.network == Some(proto2.getDocker.getNetwork))
-    assert(f.container2.docker.get.portMappings == proto2.getDocker.getPortMappingsList.asScala.map(Container.Docker.PortMapping.apply))
+    assert(f.container2.docker.get.portMappings == Some(proto2.getDocker.getPortMappingsList.asScala.map(Container.Docker.PortMapping.apply)))
   }
 
   test("ConstructFromProto") {
     val f = fixture()
 
-    val containerInfo = mesos.ContainerInfo.newBuilder
+    val containerInfo = Protos.ExtendedContainerInfo.newBuilder
       .setType(mesos.ContainerInfo.Type.DOCKER)
       .addAllVolumes(f.volumes.map(_.toProto).asJava)
       .setDocker(f.container.docker.get.toProto)
@@ -67,7 +68,7 @@ class ContainerTest extends MarathonSpec with Matchers with ModelValidation {
     val container = Container(containerInfo)
     assert(container == f.container)
 
-    val containerInfo2 = mesos.ContainerInfo.newBuilder
+    val containerInfo2 = Protos.ExtendedContainerInfo.newBuilder
       .setType(mesos.ContainerInfo.Type.DOCKER)
       .setDocker(f.container2.docker.get.toProto)
       .build
@@ -132,8 +133,8 @@ class ContainerTest extends MarathonSpec with Matchers with ModelValidation {
           "image": "group/image",
           "network": "BRIDGE",
           "portMappings": [
-            { "containerPort": 8080, "hostPort": 32001, "protocol": "tcp"},
-            { "containerPort": 8081, "hostPort": 32002, "protocol": "udp"}
+            { "containerPort": 8080, "hostPort": 32001, "servicePort": 9000, "protocol": "tcp"},
+            { "containerPort": 8081, "hostPort": 32002, "servicePort": 9001, "protocol": "udp"}
           ]
         }
       }

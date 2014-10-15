@@ -28,7 +28,11 @@ class PortsMatcher(app: AppDefinition, offer: Offer) extends Logging {
   def portRanges: Option[RangesResource] = {
 
     val portMappings: Option[Seq[Container.Docker.PortMapping]] =
-      app.container.flatMap(_.docker.map(_.portMappings)).filter(_.nonEmpty)
+      for {
+        c <- app.container
+        d <- c.docker
+        pms <- d.portMappings if pms.nonEmpty
+      } yield pms
 
     (app.ports, portMappings) match {
       case (Nil, None) =>
@@ -41,8 +45,10 @@ class PortsMatcher(app: AppDefinition, offer: Offer) extends Logging {
         appPortRanges.orElse(randomPortRanges)
 
       case (_, Some(mappings)) =>
-        val assigned = mappedPortRanges(mappings)
-        assigned.recover { case PortResourceException(msg) => log.info(msg) }
+        val assigned: Try[RangesResource] = mappedPortRanges(mappings)
+        assigned.recover {
+          case PortResourceException(msg) => log.info(msg)
+        }: Any
         assigned.toOption
 
       case _ =>
@@ -111,11 +117,11 @@ class PortsMatcher(app: AppDefinition, offer: Offer) extends Logging {
         scalaPortRanges.exists(_ contains port)
 
       val mappingsWithAssignedRandoms = mappings.map {
-        case PortMapping(containerPort, 0, protocol) =>
+        case PortMapping(containerPort, hostPort, servicePort, protocol) if hostPort == 0 =>
           if (!availablePorts.hasNext) throw PortResourceException(
-            "Insufficient ports in offer for app [${app.id}]"
+            s"Insufficient ports in offer for app [${app.id}]"
           )
-          PortMapping(containerPort, availablePorts.next, protocol)
+          PortMapping(containerPort, availablePorts.next, servicePort, protocol)
         case pm: PortMapping => pm
       }
 
@@ -131,7 +137,7 @@ class PortsMatcher(app: AppDefinition, offer: Offer) extends Logging {
         )
 
       val portRanges = mappingsWithAssignedRandoms.map {
-        case PortMapping(containerPort, hostPort, protocol) =>
+        case PortMapping(containerPort, hostPort, servicePort, protocol) =>
           protos.Range(hostPort.longValue, hostPort.longValue)
       }
 

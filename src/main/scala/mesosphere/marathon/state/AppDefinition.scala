@@ -3,18 +3,20 @@ package mesosphere.marathon.state
 import java.lang.{ Double => JDouble, Integer => JInt }
 
 import com.fasterxml.jackson.annotation.{ JsonIgnoreProperties, JsonProperty }
-import mesosphere.marathon.Protos.{ Constraint, MarathonTask }
+import mesosphere.marathon.Protos.Constraint
 import mesosphere.marathon.api.v2.json.EnrichedTask
 import mesosphere.marathon.api.validation.FieldConstraints._
 import mesosphere.marathon.api.validation.{ PortIndices, ValidAppDefinition }
 import mesosphere.marathon.health.HealthCheck
+import mesosphere.marathon.state.Container.Docker.PortMapping
 import mesosphere.marathon.state.PathId._
 import mesosphere.marathon.Protos
 import mesosphere.marathon.upgrade.DeploymentPlan
 import mesosphere.mesos.TaskBuilder
 import mesosphere.mesos.protos.{ Resource, ScalarResource }
+import org.apache.mesos.Protos.ContainerInfo.DockerInfo.Network
 import org.apache.mesos.Protos.TaskState
-
+import scala.collection.immutable.Seq
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 
@@ -72,22 +74,23 @@ case class AppDefinition(
 
   assert(
     portIndicesAreValid(),
-    "Port indices must address an element of this app's ports array."
+    "Health check port indices must address an element of the ports array or container port mappings."
   )
 
   /**
     * Returns true if all health check port index values are in the range
-    * of ths app's ports array.
+    * of ths app's ports array, or if defined, the array of container
+    * port mappings.
     */
   def portIndicesAreValid(): Boolean = {
-    val validPortIndices = 0 until ports.size
+    val validPortIndices = 0 until hostPorts.size
     healthChecks.forall { hc =>
       validPortIndices contains hc.portIndex
     }
   }
 
   def toProto: Protos.ServiceDefinition = {
-    val commandInfo = TaskBuilder.commandInfo(this, Seq())
+    val commandInfo = TaskBuilder.commandInfo(this, None, Seq.empty)
     val cpusResource = ScalarResource(Resource.CPUS, cpus)
     val memResource = ScalarResource(Resource.MEM, mem)
     val diskResource = ScalarResource(Resource.DISK, disk)
@@ -134,7 +137,7 @@ case class AppDefinition(
 
     val argsOption =
       if (commandOption.isEmpty)
-        Some(proto.getCmd.getArgumentsList.asScala)
+        Some(proto.getCmd.getArgumentsList.asScala.to[Seq])
       else None
 
     val containerOption =
@@ -153,7 +156,7 @@ case class AppDefinition(
       args = argsOption,
       executor = proto.getExecutor,
       instances = proto.getInstances,
-      ports = proto.getPortsList.asScala,
+      ports = proto.getPortsList.asScala.to[Seq],
       requirePorts = proto.getRequirePorts,
       backoff = proto.getBackoff.milliseconds,
       backoffFactor = proto.getBackoffFactor,
@@ -162,8 +165,8 @@ case class AppDefinition(
       mem = resourcesMap.getOrElse(Resource.MEM, this.mem),
       disk = resourcesMap.getOrElse(Resource.DISK, this.disk),
       env = envMap,
-      uris = proto.getCmd.getUrisList.asScala.map(_.getValue),
-      storeUrls = proto.getStoreUrlsList.asScala,
+      uris = proto.getCmd.getUrisList.asScala.map(_.getValue).to[Seq],
+      storeUrls = proto.getStoreUrlsList.asScala.to[Seq],
       container = containerOption,
       healthChecks = proto.getHealthChecksList.asScala.map(new HealthCheck().mergeFromProto).toSet,
       version = Timestamp(proto.getVersion),
@@ -172,13 +175,27 @@ case class AppDefinition(
     )
   }
 
-  def containerHostPorts(): Option[Seq[Int]] =
-    container.flatMap(_.docker.map(_.portMappings.map(_.hostPort)))
+  def portMappings(): Option[Seq[PortMapping]] =
+    for {
+      c <- container
+      d <- c.docker
+      n <- d.network if n == Network.BRIDGE
+      pms <- d.portMappings
+    } yield pms
 
-  def requestedPorts(): Seq[Int] =
+  def containerHostPorts(): Option[Seq[Int]] =
+    for (pms <- portMappings) yield pms.map(_.hostPort.toInt)
+
+  def containerServicePorts(): Option[Seq[Int]] =
+    for (pms <- portMappings) yield pms.map(_.servicePort.toInt)
+
+  def hostPorts(): Seq[Int] =
     containerHostPorts.getOrElse(ports.map(_.toInt))
 
-  def hasDynamicPort(): Boolean = requestedPorts.contains(0)
+  def servicePorts(): Seq[Int] =
+    containerServicePorts.getOrElse(ports.map(_.toInt))
+
+  def hasDynamicPort(): Boolean = servicePorts.contains(0)
 
   def mergeFromProto(bytes: Array[Byte]): AppDefinition = {
     val proto = Protos.ServiceDefinition.parseFrom(bytes)
