@@ -6,7 +6,7 @@ RUN echo "deb http://repos.mesosphere.io/ubuntu/ trusty main" > /etc/apt/sources
 
 RUN apt-get install -y \
     default-jdk \
-    mesos=0.19.1-1.0.ubuntu1404 \
+    mesos=0.20.1-1.0.ubuntu1404 \
     scala \
     curl 
 
