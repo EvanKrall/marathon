@@ -1,4 +1,4 @@
-VERSION=0.7.5
+VERSION=0.7.6
 MESOS_VERSION=0.20.1
 
 REGISTRY=docker-paasta.yelpcorp.com:443
