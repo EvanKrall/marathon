@@ -35,13 +35,13 @@ case class AppDefinition(
 
   env: Map[String, String] = Map.empty,
 
-  @FieldMin(0) instances: JInt = AppDefinition.DEFAULT_INSTANCES,
+  @FieldMin(0) instances: JInt = AppDefinition.DefaultInstances,
 
-  cpus: JDouble = AppDefinition.DEFAULT_CPUS,
+  cpus: JDouble = AppDefinition.DefaultCpus,
 
-  mem: JDouble = AppDefinition.DEFAULT_MEM,
+  mem: JDouble = AppDefinition.DefaultMem,
 
-  disk: JDouble = AppDefinition.DEFAULT_DISK,
+  disk: JDouble = AppDefinition.DefaultDisk,
 
   @FieldPattern(regexp = "^(//cmd)|(/?[^/]+(/[^/]+)*)|$") executor: String = "",
 
@@ -51,13 +51,13 @@ case class AppDefinition(
 
   storeUrls: Seq[String] = Seq.empty,
 
-  @FieldPortsArray ports: Seq[JInt] = AppDefinition.DEFAULT_PORTS,
+  @FieldPortsArray ports: Seq[JInt] = AppDefinition.DefaultPorts,
 
-  requirePorts: Boolean = AppDefinition.DEFAULT_REQUIRE_PORTS,
+  requirePorts: Boolean = AppDefinition.DefaultRequirePorts,
 
-  @FieldJsonProperty("backoffSeconds") backoff: FiniteDuration = AppDefinition.DEFAULT_BACKOFF,
+  @FieldJsonProperty("backoffSeconds") backoff: FiniteDuration = AppDefinition.DefaultBackoff,
 
-  backoffFactor: JDouble = AppDefinition.DEFAULT_BACKOFF_FACTOR,
+  backoffFactor: JDouble = AppDefinition.DefaultBackoffFactor,
 
   container: Option[Container] = None,
 
@@ -90,7 +90,7 @@ case class AppDefinition(
   }
 
   def toProto: Protos.ServiceDefinition = {
-    val commandInfo = TaskBuilder.commandInfo(this, None, Seq.empty)
+    val commandInfo = TaskBuilder.commandInfo(this, None, None, Seq.empty)
     val cpusResource = ScalarResource(Resource.CPUS, cpus)
     val memResource = ScalarResource(Resource.MEM, mem)
     val diskResource = ScalarResource(Resource.DISK, disk)
@@ -224,48 +224,28 @@ case class AppDefinition(
   def isOnlyScaleChange(to: AppDefinition): Boolean =
     !isUpgrade(to) && (instances != to.instances)
 
-  def isUpgrade(to: AppDefinition): Boolean = {
-    cmd != to.cmd ||
-      env != to.env ||
-      cpus != to.cpus ||
-      mem != to.mem ||
-      disk != to.disk ||
-      uris.toSet != to.uris.toSet ||
-      constraints != to.constraints ||
-      container != to.container ||
-      ports.toSet != to.ports.toSet ||
-      requirePorts != to.requirePorts ||
-      executor != to.executor ||
-      healthChecks != to.healthChecks ||
-      backoff != to.backoff ||
-      backoffFactor != to.backoffFactor ||
-      dependencies != to.dependencies ||
-      upgradeStrategy != to.upgradeStrategy ||
-      storeUrls.toSet != to.storeUrls.toSet ||
-      user != to.user ||
-      backoff != to.backoff ||
-      backoffFactor != to.backoffFactor
-  }
+  def isUpgrade(to: AppDefinition): Boolean =
+    this != to.copy(instances = instances, version = version)
 }
 
 object AppDefinition {
-  val DEFAULT_CPUS = 1.0
+  val DefaultCpus = 1.0
 
-  val DEFAULT_MEM = 128.0
+  val DefaultMem = 128.0
 
-  val DEFAULT_DISK = 0.0
+  val DefaultDisk = 0.0
 
-  val RANDOM_PORT_VALUE = 0
+  val RandomPortValue = 0
 
-  val DEFAULT_PORTS: Seq[JInt] = Seq(RANDOM_PORT_VALUE)
+  val DefaultPorts: Seq[JInt] = Seq(RandomPortValue)
 
-  val DEFAULT_REQUIRE_PORTS = false
+  val DefaultRequirePorts = false
 
-  val DEFAULT_INSTANCES = 1
+  val DefaultInstances = 1
 
-  val DEFAULT_BACKOFF = 1.second
+  val DefaultBackoff = 1.second
 
-  val DEFAULT_BACKOFF_FACTOR = 1.15
+  val DefaultBackoffFactor = 1.15
 
   def fromProto(proto: Protos.ServiceDefinition): AppDefinition =
     AppDefinition().mergeFromProto(proto)

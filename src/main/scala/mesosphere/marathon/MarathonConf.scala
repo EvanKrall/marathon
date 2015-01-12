@@ -26,7 +26,7 @@ trait MarathonConf extends ScallopConf with ZookeeperConf {
     descr = "Enable checkpointing of tasks. " +
       "Requires checkpointing enabled on slaves. Allows tasks to continue " +
       "running during mesos-slave restarts and upgrades",
-    noshort = true)
+    noshort = true, default = Some(true))
 
   lazy val localPortMin = opt[Int]("local_port_min",
     descr = "Min port number to use when assigning ports to apps",
@@ -59,16 +59,25 @@ trait MarathonConf extends ScallopConf with ZookeeperConf {
   lazy val reconciliationInitialDelay = opt[Long]("reconciliation_initial_delay",
     descr = "This is the length of time, in milliseconds, before Marathon " +
       "begins to periodically perform task reconciliation operations",
-    default = Some(30000L)) // 30 seconds
+    default = Some(300000L)) // 300 seconds (5 minutes)
 
   lazy val reconciliationInterval = opt[Long]("reconciliation_interval",
     descr = "This is the length of time, in milliseconds, between task " +
       "reconciliation operations.",
-    default = Some(30000L)) // 30 seconds
+    default = Some(300000L)) // 300 seconds (5 minutes)
+
+  lazy val marathonStoreTimeout = opt[Long]("marathon_store_timeout",
+    descr = "Maximum time, in milliseconds, to wait for persistent storage " +
+      "operations to complete.",
+    default = Some(2000L)) // 2 seconds
 
   lazy val mesosUser = opt[String]("mesos_user",
     descr = "Mesos user for this framework",
     default = new SystemProperties().get("user.name")) // Current logged in user
+
+  lazy val frameworkName = opt[String]("framework_name",
+    descr = "Framework name to register with Mesos.",
+    default = Some(s"marathon-${BuildInfo.version}"))
 
   lazy val artifactStore = opt[String]("artifact_store",
     descr = "URL to the artifact store. " +
